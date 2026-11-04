@@ -201,13 +201,13 @@ struct SessionChatView: View, Equatable {
             transaction.disablesAnimations = true
             withTransaction(transaction) { hasStartedLoading = true }
         }
-        .task(id: OpeningWatchKey(started: hasStartedLoading, attempt: openingAttempt)) {
-            // The stall hint must not live inside the mask it replaces. On iOS 15
-            // that subtree is only rebuilt when some other observed read changes,
-            // so a timer owned by it could be torn down before it ever fired.
-            guard hasStartedLoading else { return }
+        .task(id: openingAttempt) {
+            // This watchdog must not depend on any of the gates it is meant to
+            // report. Keyed on the loading flag it never fired on the exact path
+            // that hangs -- the one where the flag never turns true -- so a stuck
+            // page showed a bare spinner and could not describe itself.
             openingTimedOut = false
-            do { try await ClientTask.sleep(for: .seconds(10)) } catch { return }
+            do { try await ClientTask.sleep(for: .seconds(8)) } catch { return }
             guard !Task.isCancelled, !model.isContentVisible else { return }
             openingTimedOut = true
         }
@@ -304,6 +304,13 @@ struct SessionChatView: View, Equatable {
                     ProgressView().progressViewStyle(.circular).accessibilityLabel(String(localized: "正在加载会话"))
                         .accessibilityIdentifier("chat.opening.loading")
                 }
+                // Shown from the first frame, not only after the stall timer: a
+                // page that hangs before any gate flips must still report which
+                // gate it is waiting on.
+                Text(verbatim: openingGateReport)
+                    .font(.caption2.monospaced()).foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("chat.opening.gates")
             }
             .padding(24).frame(maxWidth: 320)
         }
@@ -403,13 +410,6 @@ struct SessionChatView: View, Equatable {
         if let directory = previewDirectory { try? FileManager.default.removeItem(at: directory) }
         previewDirectory = nil
     }
-}
-
-/// Restarts the stall watch on a new page visit and on every retry, while a
-/// plain `hasStartedLoading` flag would only ever let it fire once per view.
-private struct OpeningWatchKey: Equatable {
-    let started: Bool
-    let attempt: Int
 }
 
 /// Command success is transient, like the Web/Desktop toast; failures use the
