@@ -196,7 +196,7 @@ struct SessionChatView: View, Equatable {
             guard !Task.isCancelled, !model.isContentVisible else { return }
             openingTimedOut = true
         }
-        .task(id: hasStartedLoading) {
+        .task(id: OpeningLoadKey(started: hasStartedLoading, attempt: openingAttempt)) {
             guard hasStartedLoading else { return }
             // Reattaching a loaded detail only resumes observation.
             await model.prepareOpening()
@@ -395,6 +395,14 @@ struct SessionChatView: View, Equatable {
         if let directory = previewDirectory { try? FileManager.default.removeItem(at: directory) }
         previewDirectory = nil
     }
+}
+
+/// Restarts the load on a new page visit and on every retry. Keyed on the flag
+/// alone, a cancelled first attempt could never be re-run: the flag did not
+/// change again, so the task did not restart and retry did nothing.
+private struct OpeningLoadKey: Equatable {
+    let started: Bool
+    let attempt: Int
 }
 
 /// Command success is transient, like the Web/Desktop toast; failures use the
