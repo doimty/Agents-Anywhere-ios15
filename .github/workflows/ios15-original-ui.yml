@@ -140,7 +140,7 @@ jobs:
           )
           python3 ios/scripts/verify_ios15_ipa.py \
             "$RUNNER_TEMP/original-ui/ipa/AgentsAnywhere-ios15-unsigned.ipa" \
-            --expected-build 20 --report "$RUNNER_TEMP/original-ui/ipa-verification.json"
+            --expected-build 21 --report "$RUNNER_TEMP/original-ui/ipa-verification.json"
       - name: Upload the IPA
         if: success()
         uses: actions/upload-artifact@v4
