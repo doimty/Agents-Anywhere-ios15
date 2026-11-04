@@ -107,7 +107,14 @@ final class SessionTimelinePresentation {
 
     func presentOpening(_ items: [V2TimelineItem], pendingMessages: [V2PendingMessage]) {
         stage(items, animate: false)
+        // The opening snapshot must land even while the drawer covers the page.
+        // Suspension exists to stop streaming redraws behind an opaque cover, but
+        // applying it here left the page with no rows and therefore no way out of
+        // the opening mask when a visit began under a moving drawer.
+        let resumed = presentationIsSuspended
+        if resumed { presentationIsSuspended = false }
         flush()
+        if resumed { presentationIsSuspended = true }
         synchronizePending(pendingMessages)
     }
 
