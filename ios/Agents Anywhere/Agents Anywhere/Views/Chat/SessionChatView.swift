@@ -74,22 +74,29 @@ struct SessionChatView: View, Equatable {
                         }
                     }
                     .overlay {
-                    if !model.isContentVisible {
-                        if openingTimedOut {
-                            // A stalled sync feed can withhold every frame, and the
-                            // opaque mask then reads as a black hang. After a bounded
-                            // wait show a small status card with an explicit retry.
-                            openingSlowBanner
-                        } else {
-                            openingMask
-                                .task {
-                                    do { try await ClientTask.sleep(for: .seconds(10)) } catch { return }
-                                    guard !Task.isCancelled, !model.isContentVisible else { return }
-                                    openingTimedOut = true
+                        // This branch is the only overlay in this file that was
+                        // left outside the tracking scope. On iOS 15/16 a read of
+                        // @Perceptible state outside WithPerceptionTracking
+                        // registers no dependency, so once layout settled the
+                        // decision "not visible yet" was never revisited and the
+                        // mask stayed on top of a transcript that had already
+                        // loaded. Entering from the drawer loses that race far more
+                        // often, because the closing animation stops the body from
+                        // re-evaluating right after the frame that decided it.
+                        AppObservationTracking {
+                            if !model.isContentVisible {
+                                if openingTimedOut {
+                                    // A stalled sync feed can withhold every frame,
+                                    // and the opaque mask then reads as a black
+                                    // hang. After a bounded wait show a small status
+                                    // card with an explicit retry.
+                                    openingSlowBanner
+                                } else {
+                                    openingMask
                                 }
+                            }
                         }
                     }
-                }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         AppObservationTracking {
                             VStack(spacing: 0) {
@@ -180,6 +187,16 @@ struct SessionChatView: View, Equatable {
             withTransaction(transaction) { hasStartedLoading = true }
         }
         .task(id: hasStartedLoading) {
+            // The stall hint must not live inside the mask it replaces. On iOS 15
+            // that subtree is only rebuilt when some other observed read changes,
+            // so a timer owned by it could be torn down before it ever fired.
+            guard hasStartedLoading else { return }
+            openingTimedOut = false
+            do { try await ClientTask.sleep(for: .seconds(10)) } catch { return }
+            guard !Task.isCancelled, !model.isContentVisible else { return }
+            openingTimedOut = true
+        }
+        .task(id: hasStartedLoading) {
             guard hasStartedLoading else { return }
             // Reattaching a loaded detail only resumes observation.
             await model.prepareOpening()
@@ -257,7 +274,11 @@ struct SessionChatView: View, Equatable {
         ZStack {
             Color(uiColor: .systemBackground)
             VStack(spacing: 12) {
-                if let error = model.openingError, !model.timeline.hasPresentedSnapshot {
+                // A presented snapshot is not the same as an authorized one: the
+                // live feed can stage rows while the aggregate read is still the
+                // thing withholding readiness. Requiring both flags here hid the
+                // failure behind a bare spinner that never offered a retry.
+                if let error = model.openingError {
                     Text(error).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         .accessibilityIdentifier("chat.opening.error")
                     Button(String(localized: "重试")) { Task { await model.prepareOpening() } }
@@ -286,12 +307,30 @@ struct SessionChatView: View, Equatable {
         .padding(.horizontal, 20).padding(.bottom, 4)
     }
 
+    /// Which gate is still unsatisfied. The spinner was the only visible symptom
+    /// of four different failures, so a stuck page could never be reported
+    /// without guessing. This line names the failing gate on the device itself.
+    private var openingGateReport: String {
+        let error = String(model.openingError?.prefix(80) ?? "")
+        return ["auth=\(model.hasAuthoritativeOpening ? 1 : 0)",
+                "prepared=\(model.isOpeningPrepared ? 1 : 0)",
+                "snap=\(model.timeline.hasPresentedSnapshot ? 1 : 0)",
+                "preview=\(model.isShowingHistoricPreview ? 1 : 0)",
+                "started=\(hasStartedLoading ? 1 : 0)",
+                "meta=\(session.metadata == nil ? "nil" : "ok")",
+                "err=\(error.isEmpty ? "-" : error)"].joined(separator: "  ")
+    }
+
     private var openingSlowBanner: some View {
         VStack(spacing: 12) {
             ProgressView().progressViewStyle(.circular)
                 .accessibilityIdentifier("chat.opening.slow")
             Text(String(localized: "正在同步 Agent 状态，稍等片刻…"))
                 .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Text(verbatim: openingGateReport)
+                .font(.caption2.monospaced()).foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("chat.opening.gates")
             Button(String(localized: "重试")) {
                 openingTimedOut = false
                 Task { await model.prepareOpening() }
