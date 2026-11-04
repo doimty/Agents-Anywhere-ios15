@@ -212,6 +212,14 @@ final class SessionChatModel {
         commandFailure = CommandFeedback(title: String(localized: "无法执行指令"), message: message)
     }
 
+    /// The repository can recycle a model before the page manages to subscribe,
+    /// and an invalidated model never starts its timeline. Say so instead of
+    /// leaving the same spinner up forever with nothing behind it.
+    func reportReclaimedOpening() {
+        guard !session.isValid, openingError == nil else { return }
+        openingError = String(localized: "会话缓存已被回收，请返回列表重新打开。")
+    }
+
     func prepareOpening() async {
         if !timeline.hasPresentedSnapshot { isOpeningPrepared = false }
         openingError = nil

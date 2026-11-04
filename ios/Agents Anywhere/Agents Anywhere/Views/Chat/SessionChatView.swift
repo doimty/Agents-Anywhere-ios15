@@ -192,7 +192,11 @@ struct SessionChatView: View, Equatable {
             // session from the device page needs no such signal, so a missing
             // one left only the sidebar path spinning. Load after a bounded wait.
             do { try await ClientTask.sleep(for: .milliseconds(900)) } catch { return }
-            guard !hasStartedLoading, session.isValid else { return }
+            guard !hasStartedLoading else { return }
+            // Validity is checked to explain a reclaimed model, never to gate the
+            // reveal: skipping it here left the page as a bare spinner with no
+            // timeline and no error at all.
+            model.reportReclaimedOpening()
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
             withTransaction(transaction) { hasStartedLoading = true }
