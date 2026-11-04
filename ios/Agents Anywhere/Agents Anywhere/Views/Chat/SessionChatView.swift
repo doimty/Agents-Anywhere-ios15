@@ -26,6 +26,9 @@ struct SessionChatView: View, Equatable {
     /// Bumped by both retry buttons so the stall watch re-arms per attempt
     /// instead of firing once for the lifetime of the page.
     @State private var openingAttempt = 0
+    /// onAppear can fire more than once for one instance; this keeps the
+    /// repository pin balanced against onDisappear.
+    @State private var isPinned = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @ScaledMetric(relativeTo: .body) private var bodyLineHeight: CGFloat = 22
@@ -183,7 +186,9 @@ struct SessionChatView: View, Equatable {
             // can be cancelled every time. Set it here, synchronously, on every
             // mount; the work below is idempotent and the repository coalesces it.
             // Pin the model first so the load cannot be evicted underneath itself.
-            model.repository.retainSession(model.session.id)
+            // onAppear can fire more than once for one instance, so the pin is
+            // tracked separately from the loading flag and stays balanced.
+            if !isPinned { isPinned = true; model.repository.retainSession(model.session.id) }
             guard !hasStartedLoading else { return }
             model.reportReclaimedOpening()
             hasStartedLoading = true
@@ -241,7 +246,7 @@ struct SessionChatView: View, Equatable {
         .quickLookPreview($previewURL)
         .appOnChange(of: previewURL) { _, url in if url == nil { cleanPreview() } }
         .onDisappear {
-            model.repository.releaseSession(model.session.id)
+            if isPinned { isPinned = false; model.repository.releaseSession(model.session.id) }
             model.timeline.setPresentationSuspended(false)
             if previewURL == nil { cleanPreview() }
             // A composer that still holds focus leaves the keyboard's inset
