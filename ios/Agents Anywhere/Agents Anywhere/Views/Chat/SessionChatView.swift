@@ -328,8 +328,16 @@ struct SessionChatView: View, Equatable {
         VStack(spacing: 12) {
             ProgressView().progressViewStyle(.circular)
                 .accessibilityIdentifier("chat.opening.slow")
+            // The hint replaces the spinner, so it also has to inherit the
+            // failure that arrived while it was counting down. Otherwise a read
+            // that errors at second 12 would be reported as "still syncing".
             Text(String(localized: "正在同步 Agent 状态，稍等片刻…"))
                 .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            if let error = model.openingError {
+                Text(error).font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("chat.opening.error")
+            }
             Text(verbatim: openingGateReport)
                 .font(.caption2.monospaced()).foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
