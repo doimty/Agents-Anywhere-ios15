@@ -87,7 +87,15 @@ struct SessionChatView: View, Equatable {
                         // often, because the closing animation stops the body from
                         // re-evaluating right after the frame that decided it.
                         AppObservationTracking {
-                            if !model.isContentVisible {
+                            // Never cover rows that already exist unless there is a
+                            // failure to report. The mask is a first-paint shield
+                            // for an empty page; leaving it on top of a presented
+                            // transcript turns a stale readiness flag into a
+                            // permanent spinner. Hit testing still follows
+                            // isContentVisible, so early rows stay read-only until
+                            // the runtime facts arrive.
+                            if !model.isContentVisible,
+                               model.timeline.rows.isEmpty || model.openingError != nil {
                                 if openingTimedOut {
                                     // A stalled sync feed can withhold every frame,
                                     // and the opaque mask then reads as a black
