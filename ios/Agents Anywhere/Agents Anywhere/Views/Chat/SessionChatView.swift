@@ -175,31 +175,16 @@ struct SessionChatView: View, Equatable {
             wasRunning && !isRunning && model.isOpeningReady && session.runtime.isFresh
                 && session.runtime.state?.status == .idle
         }
-        .sidebarDrawerSettledTask(id: hasStartedLoading) { settled in
-            guard !hasStartedLoading, settled else { return }
-            // Show feedback immediately, but let the drawer's completed
-            // animation and the selection's final layout leave the main thread.
-            do { try await ClientTask.sleep(for: .milliseconds(120)) } catch { return }
-            guard !Task.isCancelled else { return }
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { hasStartedLoading = true }
-        }
-        .task {
-            // Opening from the sidebar used to wait for the drawer to report
-            // "settled", which depends on a motion completion that a stray pan
-            // during the closing animation can discard. Entering the same
-            // session from the device page needs no such signal, so a missing
-            // one left only the sidebar path spinning. Load after a bounded wait.
-            do { try await ClientTask.sleep(for: .milliseconds(900)) } catch { return }
+        .onAppear {
+            // Measured on device: the loading flag never turned true for a session
+            // opened from the drawer, because both paths to it were async and the
+            // page was torn down and rebuilt several times a second while the app
+            // was busy. Anything that has to await a timer before setting a flag
+            // can be cancelled every time. Set it here, synchronously, on every
+            // mount; the work below is idempotent and the repository coalesces it.
             guard !hasStartedLoading else { return }
-            // Validity is checked to explain a reclaimed model, never to gate the
-            // reveal: skipping it here left the page as a bare spinner with no
-            // timeline and no error at all.
             model.reportReclaimedOpening()
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { hasStartedLoading = true }
+            hasStartedLoading = true
         }
         .task(id: openingAttempt) {
             // This watchdog must not depend on any of the gates it is meant to
