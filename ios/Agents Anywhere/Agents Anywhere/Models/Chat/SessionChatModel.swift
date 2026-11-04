@@ -245,7 +245,11 @@ final class SessionChatModel {
             // below is what prevents it from ever overwriting real state.
             openingError = error.localizedDescription
         }
-        guard session.isValid, !Task.isCancelled else { preview.cancel(); return }
+        // A reclaimed model is still addressable by session id: opening it again
+        // rebuilds the repository entry, and the read below republishes into this
+        // timeline. Bailing here is what turned a recycled cache slot into a page
+        // that could never load, so only cancellation stops the read.
+        guard !Task.isCancelled else { preview.cancel(); return }
         if let data = repository.cached(sessionId: session.id) {
             timeline.presentOpening(data.items, pendingMessages: session.pendingMessages)
             hasAuthoritativeOpening = true
