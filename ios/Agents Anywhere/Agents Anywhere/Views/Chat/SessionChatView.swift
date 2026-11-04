@@ -253,7 +253,9 @@ struct SessionChatView: View, Equatable {
         })
         .quickLookPreview($previewURL)
         .appOnChange(of: previewURL) { _, url in if url == nil { cleanPreview() } }
+        .onAppear { model.repository.retainSession(model.session.id) }
         .onDisappear {
+            model.repository.releaseSession(model.session.id)
             model.timeline.setPresentationSuspended(false)
             if previewURL == nil { cleanPreview() }
             // A composer that still holds focus leaves the keyboard's inset

@@ -1,11 +1,7 @@
 import Foundation
 
 nonisolated struct V2SessionCachePolicy {
-    // A phone visit mounts one page at a time, but the dashboard prefetch and the
-    // sidebar can create models in the same turn the page takes its own. Eight
-    // slots let one of those turns recycle the model a page is still mounting,
-    // which invalidates it before its observer exists.
-    var maximumSessions = 24
+    var maximumSessions = 8
     var maximumTimelineItems = 1000
     var catalogLifetime: TimeInterval = 30
 }
@@ -49,9 +45,20 @@ final class V2SessionRepository {
 
     func session(id: V2SessionID) -> V2SessionModel {
         let entry = entry(for: id)
-        markAcquired(entry)
         evict(protecting: entry)
         return entry.model
+    }
+
+    /// A mounted page owns its model until it disappears. Without this the LRU
+    /// pass can recycle the entry in the gap between the page taking the model
+    /// and its observer attaching, and an invalidated model never starts.
+    func retainSession(_ id: V2SessionID) {
+        entries[id]?.pins += 1
+    }
+
+    func releaseSession(_ id: V2SessionID) {
+        guard let entry = entries[id] else { return }
+        entry.pins = max(0, entry.pins - 1)
     }
 
     func cached(sessionId: V2SessionID) -> V2SessionData? {
@@ -756,19 +763,11 @@ final class V2SessionRepository {
         entry.model.invalidate()
     }
 
-    private func markAcquired(_ entry: Entry) {
-        entry.acquiredAt = ProcessInfo.processInfo.systemUptime
-        touch(entry)
-    }
-
     private func evict(protecting protected: Entry? = nil) {
-        let now = ProcessInfo.processInfo.systemUptime
         let candidates = entries.values.filter {
-            $0 !== protected && $0.observers.isEmpty && $0.loadTask == nil && $0.catalogTask == nil
+            $0 !== protected && $0.pins == 0 && $0.observers.isEmpty && $0.loadTask == nil
+                && $0.catalogTask == nil
                 && $0.historyTask == nil && $0.runtimeFailureRecoveryTask == nil && !$0.model.hasLocalWork
-                // A page that has taken this model but not subscribed yet would
-                // be invalidated mid-mount and spin forever, so hold it briefly.
-                && now - $0.acquiredAt > 6
         }
             .sorted { $0.lastAccess < $1.lastAccess }
         for entry in candidates where entries.count > max(1, policy.maximumSessions) {
@@ -791,10 +790,9 @@ private final class Entry {
     var connection = V2SessionConnectionState.inactive
     var error: V2ClientFailure?
     var lastAccess = 0
-    /// Uptime when a view last asked for this model. A page takes its model and
-    /// only subscribes after the drawer settles, so an entry must survive that
-    /// gap even when it has no observers yet.
-    var acquiredAt: TimeInterval = 0
+    /// Mounted pages holding this model. The LRU pass leaves pinned entries alone
+    /// so a page cannot be invalidated between taking a model and subscribing.
+    var pins = 0
     var readVersion = 0
     var catalogVersion = 0
     var liveVersion = 0
