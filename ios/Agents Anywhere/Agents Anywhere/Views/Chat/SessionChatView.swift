@@ -23,6 +23,9 @@ struct SessionChatView: View, Equatable {
     @State private var pendingTakeover: Bool?
     @State private var hasStartedLoading = false
     @State private var openingTimedOut = false
+    /// Bumped by both retry buttons so the stall watch re-arms per attempt
+    /// instead of firing once for the lifetime of the page.
+    @State private var openingAttempt = 0
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @ScaledMetric(relativeTo: .body) private var bodyLineHeight: CGFloat = 22
@@ -186,7 +189,7 @@ struct SessionChatView: View, Equatable {
             transaction.disablesAnimations = true
             withTransaction(transaction) { hasStartedLoading = true }
         }
-        .task(id: hasStartedLoading) {
+        .task(id: OpeningWatchKey(started: hasStartedLoading, attempt: openingAttempt)) {
             // The stall hint must not live inside the mask it replaces. On iOS 15
             // that subtree is only rebuilt when some other observed read changes,
             // so a timer owned by it could be torn down before it ever fired.
@@ -281,7 +284,7 @@ struct SessionChatView: View, Equatable {
                 if let error = model.openingError {
                     Text(error).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         .accessibilityIdentifier("chat.opening.error")
-                    Button(String(localized: "重试")) { Task { await model.prepareOpening() } }
+                    Button(String(localized: "重试")) { retryOpening() }
                         .accessibilityIdentifier("chat.opening.retry")
                 } else {
                     ProgressView().progressViewStyle(.circular).accessibilityLabel(String(localized: "正在加载会话"))
@@ -331,16 +334,21 @@ struct SessionChatView: View, Equatable {
                 .font(.caption2.monospaced()).foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .accessibilityIdentifier("chat.opening.gates")
-            Button(String(localized: "重试")) {
-                openingTimedOut = false
-                Task { await model.prepareOpening() }
-            }
-            .accessibilityIdentifier("chat.opening.slow.retry")
+            Button(String(localized: "重试")) { retryOpening() }
+                .accessibilityIdentifier("chat.opening.slow.retry")
         }
         .padding(20).frame(maxWidth: 300)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
+    }
+
+    /// Both masks offer the same gesture: drop the hint, re-arm the stall watch
+    /// and re-run the aggregate read that owns the user-visible error.
+    private func retryOpening() {
+        openingTimedOut = false
+        openingAttempt &+= 1
+        Task { await model.prepareOpening() }
     }
 
     private func openFile(_ path: String) {
@@ -373,6 +381,13 @@ struct SessionChatView: View, Equatable {
         if let directory = previewDirectory { try? FileManager.default.removeItem(at: directory) }
         previewDirectory = nil
     }
+}
+
+/// Restarts the stall watch on a new page visit and on every retry, while a
+/// plain `hasStartedLoading` flag would only ever let it fire once per view.
+private struct OpeningWatchKey: Equatable {
+    let started: Bool
+    let attempt: Int
 }
 
 /// Command success is transient, like the Web/Desktop toast; failures use the
