@@ -182,6 +182,8 @@ struct SessionChatView: View, Equatable {
             // was busy. Anything that has to await a timer before setting a flag
             // can be cancelled every time. Set it here, synchronously, on every
             // mount; the work below is idempotent and the repository coalesces it.
+            // Pin the model first so the load cannot be evicted underneath itself.
+            model.repository.retainSession(model.session.id)
             guard !hasStartedLoading else { return }
             model.reportReclaimedOpening()
             hasStartedLoading = true
@@ -238,7 +240,6 @@ struct SessionChatView: View, Equatable {
         })
         .quickLookPreview($previewURL)
         .appOnChange(of: previewURL) { _, url in if url == nil { cleanPreview() } }
-        .onAppear { model.repository.retainSession(model.session.id) }
         .onDisappear {
             model.repository.releaseSession(model.session.id)
             model.timeline.setPresentationSuspended(false)
