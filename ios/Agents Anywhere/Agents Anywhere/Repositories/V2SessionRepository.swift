@@ -44,8 +44,10 @@ final class V2SessionRepository {
     var cachedSessionIDs: Set<V2SessionID> { Set(entries.keys) }
 
     func session(id: V2SessionID) -> V2SessionModel {
+        // Reads must not evict. This is called from a view body, so anything that
+        // can dispose another entry here turns one render pass into an invalidation
+        // that renders again -- measured at seven passes per second on the device.
         let entry = entry(for: id)
-        evict(protecting: entry)
         return entry.model
     }
 
@@ -686,6 +688,9 @@ final class V2SessionRepository {
         let entry = Entry(id: id, model: V2SessionModel(id: id, scope: scope, repository: self))
         entries[id] = entry
         touch(entry)
+        // Bounded cache, but only a new entry may trigger the walk. Doing it on
+        // every read ran the disposal pass inside a view body.
+        evict(protecting: entry)
         if network.availability == .offline { entry.connection = .offline }
         entry.model.update(observation(entry), network: network)
         return entry
