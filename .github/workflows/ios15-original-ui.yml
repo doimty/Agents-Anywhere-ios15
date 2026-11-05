@@ -114,8 +114,11 @@ jobs:
           evidence="$RUNNER_TEMP/original-ui"
           products="$RUNNER_TEMP/ReleaseDerivedData/Build/Products/Release-iphoneos"
           app="$products/Agents Anywhere.app"
-          if [ ! -d "$app" ]; then
-            echo "no Release app product; skipping" | tee -a "$GITHUB_STEP_SUMMARY"
+          # Xcode still creates the bundle and copies resources when the Swift
+          # compile fails, so the directory alone proves nothing. Require the
+          # linked executable; otherwise this step ships an empty shell.
+          if [ ! -x "$app/Agents Anywhere" ]; then
+            echo "Release build has no executable; skipping packaging" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           floor="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist" 2>/dev/null || echo unknown)"
@@ -128,6 +131,18 @@ jobs:
             shasum -a 256 AgentsAnywhere-ios15-release-unsigned.ipa > SHA256SUMS.release
             ls -lh AgentsAnywhere-ios15-release-unsigned.ipa
           )
+      - name: Report whether the optimised build actually linked
+        # continue-on-error hides the real outcome, so state it explicitly here
+        # instead of letting a green step imply a working Release build.
+        if: always()
+        shell: bash
+        run: |
+          app="$RUNNER_TEMP/ReleaseDerivedData/Build/Products/Release-iphoneos/Agents Anywhere.app"
+          if [ -x "$app/Agents Anywhere" ]; then
+            echo "RELEASE_BUILD=linked" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "RELEASE_BUILD=failed (no executable produced)" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Upload the optimised IPA if present
         if: always()
         uses: actions/upload-artifact@v4
