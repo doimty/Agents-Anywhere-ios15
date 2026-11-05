@@ -33,8 +33,8 @@ private struct NativeChatTimeline: View {
     @State private var position = ScrollPosition()
     @State private var scrolling = TimelineScrollState()
     @State private var viewportSample = ChatViewportSample()
-    @State private var viewportUpdates = ChatLayoutUpdate<TimelineViewport>()
-    @State private var historyUpdates = ChatLayoutUpdate<TimelineHistoryLayout>()
+    @State private var viewportUpdates = ChatLayoutUpdate()
+    @State private var historyUpdates = ChatLayoutUpdate()
     @State private var latestPull = TimelineHistoryPull()
     @State private var olderPull = TimelineHistoryPull(edge: .older)
     @State private var olderPromptVisible = false
@@ -549,20 +549,18 @@ private struct LegacyTimelineConfiguration {
 /// Keep the latest measurement without publishing View state inside a layout
 /// callback. One main-queue delivery handles a burst; removal invalidates it.
 ///
-/// `@_optimize(none)` is not a performance choice. An optimised build crashed
+/// Deliberately NOT generic. With a generic class the optimised build crashed
 /// the Swift compiler itself inside `EarlyPerfInliner`
-/// (`isCallerAndCalleeLayoutConstraintsCompatible`) while inlining the implicit
-/// `deinit` of this generic class. This type is a tiny main-queue coalescer, so
-/// opting it out of optimisation costs nothing and keeps `-O` builds compiling —
-/// without it every shipped IPA has to be `-Onone`, which is what makes the
-/// transcript feel slow on device.
-@_optimize(none)
-@MainActor private final class ChatLayoutUpdate<Value> {
+/// (`isCallerAndCalleeLayoutConstraintsCompatible`) while inlining its implicit
+/// `deinit`, which forced every shipped IPA to be `-Onone` — the dominant cost
+/// behind the slow transcript on device. The stored state is already type-erased
+/// to `(() -> Void)?`, so only `submit` needs the type parameter.
+@MainActor private final class ChatLayoutUpdate {
     private var pending: (() -> Void)?
     private var scheduled = false
     private var generation = 0
 
-    func submit(_ value: Value, apply: @escaping (Value) -> Void) {
+    func submit<Value>(_ value: Value, apply: @escaping (Value) -> Void) {
         pending = { apply(value) }
         guard !scheduled else { return }
         scheduled = true
