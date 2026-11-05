@@ -89,6 +89,10 @@ jobs:
         run: |
           set -uo pipefail
           evidence="$RUNNER_TEMP/original-ui"
+          # The shipped SwiftUI/SIL inliner crashes on the implicit `deinit` of
+          # several generic classes (ChatLayoutUpdate, StableViewModel, ...).
+          # Disabling the function pass keeps -O for everything else and stops the
+          # compiler dying; without it every IPA must be -Onone.
           xcodebuild \
             -project "ios/Agents Anywhere/Agents Anywhere.xcodeproj" \
             -scheme "Agents Anywhere" \
@@ -96,6 +100,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/ReleaseDerivedData" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            OTHER_SWIFT_FLAGS='$(inherited) -Xllvm -disable-sil-perf-optzns' \
             build > "$evidence/release-build.log" 2>&1
           status=$?
           printf '%s\n' "$status" > "$evidence/release-build-exit.txt"
