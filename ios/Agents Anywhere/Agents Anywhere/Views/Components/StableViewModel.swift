@@ -9,4 +9,13 @@ import Combine
     init(_ makeValue: () -> Model) {
         value = makeValue()
     }
+
+    /// Explicit and empty on purpose.
+    ///
+    /// This target deploys to iOS 15, below the isolated-deinit floor. For a
+    /// generic `@MainActor` class the compiler then synthesises an executor-hop
+    /// destructor, and `-O` dies in `EarlyPerfInliner` building an invalid apply
+    /// for it (swiftlang/swift#89896, #88173). Declaring the destructor here stops
+    /// that synthesis. Nothing needs isolation on teardown: ARC releases `value`.
+    deinit {}
 }

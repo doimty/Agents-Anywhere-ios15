@@ -52,6 +52,11 @@ final class AppChatPagerController<Card: View>: UIViewController, UIScrollViewDe
     private var animating = false
     private var positionedID: String?
 
+    /// Explicit and empty: same generic-`@MainActor` implicit-destructor crash as
+    /// StableViewModel under `-O` on a deployment target below the
+    /// isolated-deinit floor. See StableViewModel for the full note.
+    deinit {}
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
