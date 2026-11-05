@@ -103,6 +103,41 @@ jobs:
             "$evidence/release-build.log" | head -60 | tee -a "$GITHUB_STEP_SUMMARY" || true
           echo "release-build exit=$status" | tee -a "$GITHUB_STEP_SUMMARY"
           exit 0
+      - name: Package the optimised IPA when it builds
+        # Only the Debug IPA used to be shipped, which is -Onone and is the main
+        # reason the transcript feels slow on device. Publish the optimised build
+        # whenever the compiler accepts it, so a working -O is one download away.
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          evidence="$RUNNER_TEMP/original-ui"
+          products="$RUNNER_TEMP/ReleaseDerivedData/Build/Products/Release-iphoneos"
+          app="$products/Agents Anywhere.app"
+          if [ ! -d "$app" ]; then
+            echo "no Release app product; skipping" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          floor="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist" 2>/dev/null || echo unknown)"
+          echo "release product MinimumOSVersion=$floor" | tee -a "$GITHUB_STEP_SUMMARY"
+          mkdir -p "$evidence/release-ipa/Payload"
+          cp -R "$app" "$evidence/release-ipa/Payload/"
+          (
+            cd "$evidence/release-ipa"
+            zip -qry AgentsAnywhere-ios15-release-unsigned.ipa Payload
+            shasum -a 256 AgentsAnywhere-ios15-release-unsigned.ipa > SHA256SUMS.release
+            ls -lh AgentsAnywhere-ios15-release-unsigned.ipa
+          )
+      - name: Upload the optimised IPA if present
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgentsAnywhere-ios15-release-ipa
+          path: |
+            ${{ runner.temp }}/original-ui/release-ipa/AgentsAnywhere-ios15-release-unsigned.ipa
+            ${{ runner.temp }}/original-ui/release-ipa/SHA256SUMS.release
+          if-no-files-found: warn
+          retention-days: 30
       - name: Test original state and scheduling semantics
         # Full logs exposed obsolete test bindings and mutating macro inputs.
         # These are corrected; compilation and runtime cases now gate packaging.

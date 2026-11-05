@@ -548,6 +548,15 @@ private struct LegacyTimelineConfiguration {
 
 /// Keep the latest measurement without publishing View state inside a layout
 /// callback. One main-queue delivery handles a burst; removal invalidates it.
+///
+/// `@_optimize(none)` is not a performance choice. An optimised build crashed
+/// the Swift compiler itself inside `EarlyPerfInliner`
+/// (`isCallerAndCalleeLayoutConstraintsCompatible`) while inlining the implicit
+/// `deinit` of this generic class. This type is a tiny main-queue coalescer, so
+/// opting it out of optimisation costs nothing and keeps `-O` builds compiling —
+/// without it every shipped IPA has to be `-Onone`, which is what makes the
+/// transcript feel slow on device.
+@_optimize(none)
 @MainActor private final class ChatLayoutUpdate<Value> {
     private var pending: (() -> Void)?
     private var scheduled = false
