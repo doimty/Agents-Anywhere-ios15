@@ -80,6 +80,29 @@ jobs:
             --exit-code "$status" --output "$evidence/diagnostics.json" \
             | tee -a "$GITHUB_STEP_SUMMARY"
           exit "$status"
+      - name: Probe the optimised build and capture why it fails
+        # The Debug IPA is -Onone, which is the dominant cost when the user says a
+        # transcript feels laggy. Record the exact compiler diagnostics for an
+        # optimised build on every run instead of relying on a note in the docs.
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          evidence="$RUNNER_TEMP/original-ui"
+          xcodebuild \
+            -project "ios/Agents Anywhere/Agents Anywhere.xcodeproj" \
+            -scheme "Agents Anywhere" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/ReleaseDerivedData" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build > "$evidence/release-build.log" 2>&1
+          status=$?
+          printf '%s\n' "$status" > "$evidence/release-build-exit.txt"
+          grep -E "error:|Assertion failed|SIL verification|Compiling with|while running|Stack dump" \
+            "$evidence/release-build.log" | head -60 | tee -a "$GITHUB_STEP_SUMMARY" || true
+          echo "release-build exit=$status" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 0
       - name: Test original state and scheduling semantics
         # Full logs exposed obsolete test bindings and mutating macro inputs.
         # These are corrected; compilation and runtime cases now gate packaging.
