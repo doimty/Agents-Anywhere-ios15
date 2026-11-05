@@ -207,7 +207,10 @@ struct ChatShellView: View {
                 SessionChatView(session: session, services: services,
                     deviceName: appState.connectors.first { $0.id == connectorID }?.name,
                     onMenu: toggleSidebar)
-                    .equatable()
+                    // No .equatable() here. The custom == compares only the
+                    // session identity, so EquatableView reused the first body
+                    // output and never re-evaluated it; on iOS 15 that also ate
+                    // the appearance-driven state change that starts loading.
                     .id(id)
             } else {
                 NewSessionView(model: services.newSession, connectors: appState.connectors, sessions: appState.sessions, repository: services.dashboardRepository,

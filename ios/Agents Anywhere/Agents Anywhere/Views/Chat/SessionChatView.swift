@@ -29,6 +29,9 @@ struct SessionChatView: View, Equatable {
     /// onAppear can fire more than once for one instance; this keeps the
     /// repository pin balanced against onDisappear.
     @State private var isPinned = false
+    /// Appearance count, shown in the gate line. It separates "never mounted"
+    /// from "mounted but the flag did not stick".
+    @State private var appearCount = 0
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @ScaledMetric(relativeTo: .body) private var bodyLineHeight: CGFloat = 22
@@ -179,19 +182,20 @@ struct SessionChatView: View, Equatable {
                 && session.runtime.state?.status == .idle
         }
         .onAppear {
-            // Measured on device: the loading flag never turned true for a session
-            // opened from the drawer, because both paths to it were async and the
-            // page was torn down and rebuilt several times a second while the app
-            // was busy. Anything that has to await a timer before setting a flag
-            // can be cancelled every time. Set it here, synchronously, on every
-            // mount; the work below is idempotent and the repository coalesces it.
+            appearCount += 1
             // Pin the model first so the load cannot be evicted underneath itself.
-            // onAppear can fire more than once for one instance, so the pin is
-            // tracked separately from the loading flag and stays balanced.
             if !isPinned { isPinned = true; model.repository.retainSession(model.session.id) }
             guard !hasStartedLoading else { return }
             model.reportReclaimedOpening()
             hasStartedLoading = true
+            // Start the load from the appearance callback itself. The task-based
+            // path only runs once SwiftUI decides the view is on screen, and on
+            // the drawer path it never did: the mask stayed with started=0.
+            Task { @MainActor in
+                await model.prepareOpening()
+                guard !Task.isCancelled else { return }
+                await model.timeline.run(sessionID: session.id, repository: model.repository)
+            }
         }
         .task(id: openingAttempt) {
             // This watchdog must not depend on any of the gates it is meant to
@@ -332,6 +336,7 @@ struct SessionChatView: View, Equatable {
                 "snap=\(model.timeline.hasPresentedSnapshot ? 1 : 0)",
                 "preview=\(model.isShowingHistoricPreview ? 1 : 0)",
                 "started=\(hasStartedLoading ? 1 : 0)",
+                "appear=\(appearCount)",
                 "meta=\(session.metadata == nil ? "nil" : "ok")",
                 "err=\(error.isEmpty ? "-" : error)"].joined(separator: "  ")
     }
